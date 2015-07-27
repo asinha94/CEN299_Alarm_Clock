@@ -243,22 +243,12 @@ void TIM5_IRQHandler(void)
 
 	int FIVE_OR_SIX = 5;
 
-	if (TIME_STATE == T12_TIME)
-	{
-		if (Hours >= 12)
+	if (TIME_STATE == T12_TIME && Hours >= 12)
 		{
 			Hours -= 12;
 			FIVE_OR_SIX = 6;
 		}
-		else
-		{
-			FIVE_OR_SIX = 5;
-		}
-	}
-	else
-	{
-		FIVE_OR_SIX = 5;
-	}
+
 
 
 	int M1 = Minutes / 10;
