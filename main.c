@@ -100,7 +100,7 @@ void TIM5_IRQHandler(void)
  * SET_STATE defines whether the clock will display the time, or will be in the mode to set the time
  * */
 	static D_STATE CURRENT_STATE = CLOCK_TIME;
-	static T_STATE TIME_STATE = T24_TIME;
+	static T_STATE TIME_STATE = T12_TIME;
 	static S_STATE SET_STATE = SHOW_TIME;
 
 	//These variables will tell me if the buttons are currently being held down or not (True for yes)
@@ -122,6 +122,7 @@ void TIM5_IRQHandler(void)
 /*Check if button has been pushed. First 'if' is for button debouncing, if the Buttonalreadypushed is true,
  * none of the button functionality will be run
  * */
+
 	if (Button_1 == LOW)
 	{
 		Button1AlreadyPressed = FALSE;
@@ -149,7 +150,7 @@ void TIM5_IRQHandler(void)
 			}
 		}
 	}
-
+/*
 	if (Button_2 == LOW)
 	{
 		Button2AlreadyPressed = FALSE;
@@ -161,7 +162,7 @@ void TIM5_IRQHandler(void)
 		{
 			Button2AlreadyPressed = TRUE;
 
-			//if (1 /*alarm playing*/) {} TODO: Figure out how to stop alarm
+
 
 			if (SET_STATE == SET_TIME)
 			{
@@ -222,7 +223,7 @@ void TIM5_IRQHandler(void)
 			CURRENT_STATE = !CURRENT_STATE;
 		}
 	}
-
+*/
 	int Hours, Minutes;
 
 	if (CURRENT_STATE == CLOCK_TIME)
@@ -286,7 +287,7 @@ void TIM5_IRQHandler(void)
 				break;
 		case 6: SetDigit(5, 11, FALSE);
 				break;
-		default: SetDigit(0, 11, FALSE); //if an error occurs, turn off whole display
+		default: SetDigit(0, 12, FALSE); //if an error occurs, turn off whole display
 				break;
 
 		}
@@ -506,10 +507,9 @@ void RTC_Alarm_IRQHandler(void)
 	    RTC_ClearITPendingBit(RTC_IT_ALRA);
 	    EXTI_ClearITPendingBit(EXTI_Line17);
 		interruptOccurred = 1;
-
 	  }
 
-
+	  mp3PlayingFlag = 1;
 }
 
 
@@ -570,8 +570,8 @@ void configuration(void)
 
 	  //set the time displayed on power up to 12PM
 	  myclockTimeStruct.RTC_H12 = RTC_H12_PM;
-	  myclockTimeStruct.RTC_Hours = 0x14;
-	  myclockTimeStruct.RTC_Minutes = 0x28;
+	  myclockTimeStruct.RTC_Hours = 0x15;
+	  myclockTimeStruct.RTC_Minutes = 0x44;
 	  myclockTimeStruct.RTC_Seconds = 0x00;
 	  RTC_SetTime(RTC_Format_BCD, &myclockTimeStruct);
 
