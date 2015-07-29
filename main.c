@@ -58,7 +58,7 @@ void Alarm_Time_Increment(uint8_t, uint8_t);
 
 //global variables
 int interruptOccurred = 0;
-
+int interupt_flag = 0;
 
 extern volatile int exitMp3 = 0;
 extern volatile int mp3PlayingFlag = 0;
@@ -75,8 +75,17 @@ int main(void)
 
   while ( 1 )
   {
-		mp3PlayingFlag = 1;
-		audioToMp3();
+	//	mp3PlayingFlag = 1;
+	//	audioToMp3();
+
+	  if (interupt_flag)
+	  {
+		  interruptOccurred = 0;
+		  interupt_flag = 0;
+		  mp3PlayingFlag = 1;
+		  audioToMp3();
+	  }
+
   }
 }
 
@@ -100,7 +109,7 @@ void TIM5_IRQHandler(void)
  * SET_STATE defines whether the clock will display the time, or will be in the mode to set the time
  * */
 	static D_STATE CURRENT_STATE = CLOCK_TIME;
-	static T_STATE TIME_STATE = T12_TIME;
+	static T_STATE TIME_STATE = T24_TIME;
 	static S_STATE SET_STATE = SHOW_TIME;
 
 	//These variables will tell me if the buttons are currently being held down or not (True for yes)
@@ -110,19 +119,19 @@ void TIM5_IRQHandler(void)
 	static int Button4AlreadyPressed = FALSE;
 	static int Button5AlreadyPressed = FALSE;
 																	// Show     ||  Set
-	BUTTON Button_1 = GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_4);		// Snooze   ||  HourIncrement
-	BUTTON Button_2 = GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_5);		// Turn Off ||	MinuteIncrement
-	BUTTON Button_3 = GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_8);		// Set		||	Show
-	BUTTON Button_4 = GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_9);		// 24Hr - 12Hr
-	BUTTON Button_5 = GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_11);	// Alarm- Clock Time
+	BUTTON Button_1 = GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_4);		// Snooze   ||  HourIncrement    4
+	BUTTON Button_2 = GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_5);		// Turn Off ||	MinuteIncrement  5
+	BUTTON Button_3 = GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_8);		// Set		||	Show			 8
+	BUTTON Button_4 = GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_9);		// 24Hr - 12Hr					 9
+	BUTTON Button_5 = GPIO_ReadInputDataBit(GPIOC, GPIO_Pin_11);	// Alarm- Clock Time     		 11
 
 	//defines whether the digits are flashing or not. Either all digits are flashing or none
 	static int Digit_flash = FALSE;
 
+
 /*Check if button has been pushed. First 'if' is for button debouncing, if the Buttonalreadypushed is true,
  * none of the button functionality will be run
  * */
-
 	if (Button_1 == LOW)
 	{
 		Button1AlreadyPressed = FALSE;
@@ -134,7 +143,12 @@ void TIM5_IRQHandler(void)
 		{
 			Button1AlreadyPressed = TRUE;
 
-			//if (Alarm Playing) {Snooze to play after 10 minutes}
+			if (mp3PlayingFlag)
+			{
+				exitMp3 = 1;
+
+				Alarm_Time_Increment(0x00, 0x01);
+			}
 
 			if (SET_STATE == SET_TIME)
 			{
@@ -150,7 +164,7 @@ void TIM5_IRQHandler(void)
 			}
 		}
 	}
-/*
+
 	if (Button_2 == LOW)
 	{
 		Button2AlreadyPressed = FALSE;
@@ -162,7 +176,10 @@ void TIM5_IRQHandler(void)
 		{
 			Button2AlreadyPressed = TRUE;
 
-
+			if (mp3PlayingFlag)
+			{
+				exitMp3 = 1;
+			}
 
 			if (SET_STATE == SET_TIME)
 			{
@@ -223,7 +240,7 @@ void TIM5_IRQHandler(void)
 			CURRENT_STATE = !CURRENT_STATE;
 		}
 	}
-*/
+
 	int Hours, Minutes;
 
 	if (CURRENT_STATE == CLOCK_TIME)
@@ -249,17 +266,13 @@ void TIM5_IRQHandler(void)
 			FIVE_OR_SIX = 6;
 		}
 
-
-
-	int M1 = Minutes / 10;
-	int M2 = Minutes % 10;
 	int H1 = Hours / 10;
 	int H2 = Hours % 10;
-
+	int M1 = Minutes / 10;
+	int M2 = Minutes % 10;
 
 	static int time_counter = 0;
 	static int digit_counter = 1;
-
 
 	if (time_counter++ < 1)
 	{
@@ -442,19 +455,19 @@ void SetSegment(int Value)
 
 void Clock_Time_Increment(uint8_t Hours, uint8_t Minutes)
 {
-	RTC_GetTime(RTC_Format_BIN, &myclockTimeStruct);
+	RTC_GetTime(RTC_Format_BCD, &myclockTimeStruct);
 
 	myclockTimeStruct.RTC_Hours += Hours;
 	myclockTimeStruct.RTC_Minutes += Minutes;
 
 
-	if (myclockTimeStruct.RTC_Minutes >= 0x60)
+	if ( myclockTimeStruct.RTC_Minutes >= 0x3c ) //is the minutes less than 60 in (in hex)
 	{
 		myclockTimeStruct.RTC_Minutes = 0x00;
 		myclockTimeStruct.RTC_Hours += 0x01;
 	}
 
-	if (myclockTimeStruct.RTC_Hours >= 0x24)
+	if ( myclockTimeStruct.RTC_Hours >= 0x18 ) //is the hour less than 24 (in hex)
 	{
 		myclockTimeStruct.RTC_Hours = 0x00;
 	}
@@ -464,7 +477,8 @@ void Clock_Time_Increment(uint8_t Hours, uint8_t Minutes)
 
 void Alarm_Time_Increment(uint8_t Hours, uint8_t Minutes)
 {
-	RTC_GetAlarm(RTC_Format_BIN, RTC_Alarm_A, &AlarmStruct);
+	RTC_AlarmCmd(RTC_Alarm_A,DISABLE);
+	RTC_GetAlarm(RTC_Format_BCD, RTC_Alarm_A, &AlarmStruct);
 
 	AlarmStruct.RTC_AlarmTime.RTC_Hours += Hours;
 	AlarmStruct.RTC_AlarmTime.RTC_Minutes += Minutes;
@@ -482,6 +496,7 @@ void Alarm_Time_Increment(uint8_t Hours, uint8_t Minutes)
 	}
 
 	RTC_SetAlarm(RTC_Format_BCD,RTC_Alarm_A,&AlarmStruct);
+	RTC_AlarmCmd(RTC_Alarm_A,ENABLE);
 }
 
 //alarm A interrupt handler
@@ -498,8 +513,7 @@ void RTC_Alarm_IRQHandler(void)
 	    EXTI_ClearITPendingBit(EXTI_Line17);
 		interruptOccurred = 1;
 	  }
-
-	  mp3PlayingFlag = 1;
+	  interupt_flag = 1;
 }
 
 
@@ -560,17 +574,17 @@ void configuration(void)
 
 	  //set the time displayed on power up to 12PM
 	  myclockTimeStruct.RTC_H12 = RTC_H12_PM;
-	  myclockTimeStruct.RTC_Hours = 0x15;
-	  myclockTimeStruct.RTC_Minutes = 0x44;
+	  myclockTimeStruct.RTC_Hours = 0x11;
+	  myclockTimeStruct.RTC_Minutes = 0x59;
 	  myclockTimeStruct.RTC_Seconds = 0x00;
 	  RTC_SetTime(RTC_Format_BCD, &myclockTimeStruct);
 
 
 	  //sets alarmA for 12:00AM, date doesn't matter
-	  AlarmStruct.RTC_AlarmTime.RTC_H12 = RTC_H12_AM;
-	  AlarmStruct.RTC_AlarmTime.RTC_Hours = 0x12;
-	  AlarmStruct.RTC_AlarmTime.RTC_Minutes = 0x00;
-	  AlarmStruct.RTC_AlarmTime.RTC_Seconds = 0x00;
+	  AlarmStruct.RTC_AlarmTime.RTC_H12 = RTC_H12_PM; //change to AM
+	  AlarmStruct.RTC_AlarmTime.RTC_Hours = 0x11;
+	  AlarmStruct.RTC_AlarmTime.RTC_Minutes = 0x59;
+	  AlarmStruct.RTC_AlarmTime.RTC_Seconds = 0x15;
 	  AlarmStruct.RTC_AlarmMask = RTC_AlarmMask_DateWeekDay;
 	  RTC_SetAlarm(RTC_Format_BCD,RTC_Alarm_A,&AlarmStruct);
 
@@ -617,4 +631,6 @@ void configuration(void)
 
 	  //enables timer
 	  TIM5->CR1 |= TIM_CR1_CEN;
+
+	  RTC_AlarmCmd(RTC_Alarm_A,ENABLE);
 }
