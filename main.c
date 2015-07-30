@@ -22,13 +22,13 @@
 #define FALSE 0
 
 //Segment de-selectors
-#define A_Bar GPIO_Pin_7
-#define B_Bar GPIO_Pin_8
-#define C_Bar GPIO_Pin_9
-#define D_Bar GPIO_Pin_10
-#define E_Bar GPIO_Pin_11
-#define F_Bar GPIO_Pin_12
-#define G_Bar GPIO_Pin_13
+#define A_Bar GPIO_Pin_8
+#define B_Bar GPIO_Pin_9
+#define C_Bar GPIO_Pin_10
+#define D_Bar GPIO_Pin_11
+#define E_Bar GPIO_Pin_12
+#define F_Bar GPIO_Pin_13
+#define G_Bar GPIO_Pin_14
 
 // Types
 #define BUTTON int
@@ -78,7 +78,7 @@ int main(void)
 	//	mp3PlayingFlag = 1;
 	//	audioToMp3();
 
-	  if (interupt_flag)
+	  if ( interupt_flag || interruptOccurred )
 	  {
 		  interruptOccurred = 0;
 		  interupt_flag = 0;
@@ -109,7 +109,7 @@ void TIM5_IRQHandler(void)
  * SET_STATE defines whether the clock will display the time, or will be in the mode to set the time
  * */
 	static D_STATE CURRENT_STATE = CLOCK_TIME;
-	static T_STATE TIME_STATE = T24_TIME;
+	static T_STATE TIME_STATE = T12_TIME;
 	static S_STATE SET_STATE = SHOW_TIME;
 
 	//These variables will tell me if the buttons are currently being held down or not (True for yes)
@@ -132,6 +132,7 @@ void TIM5_IRQHandler(void)
 /*Check if button has been pushed. First 'if' is for button debouncing, if the Buttonalreadypushed is true,
  * none of the button functionality will be run
  * */
+
 	if (Button_1 == LOW)
 	{
 		Button1AlreadyPressed = FALSE;
@@ -147,7 +148,18 @@ void TIM5_IRQHandler(void)
 			{
 				exitMp3 = 1;
 
-				Alarm_Time_Increment(0x00, 0x01);
+				RTC_AlarmCmd(RTC_Alarm_A,DISABLE);
+
+				RTC_GetTime(RTC_Format_BIN, &myclockTimeStruct);
+				RTC_GetAlarm(RTC_Format_BIN, RTC_Alarm_A, &AlarmStruct);
+
+				AlarmStruct.RTC_AlarmTime.RTC_Hours = myclockTimeStruct.RTC_Hours;
+				AlarmStruct.RTC_AlarmTime.RTC_Minutes = myclockTimeStruct.RTC_Minutes + 0x01;
+
+				RTC_SetAlarm(RTC_Format_BIN,RTC_Alarm_A,&AlarmStruct);
+				RTC_AlarmCmd(RTC_Alarm_A,ENABLE);
+
+				mp3PlayingFlag = 0;
 			}
 
 			if (SET_STATE == SET_TIME)
@@ -179,6 +191,7 @@ void TIM5_IRQHandler(void)
 			if (mp3PlayingFlag)
 			{
 				exitMp3 = 1;
+				mp3PlayingFlag = 0;
 			}
 
 			if (SET_STATE == SET_TIME)
@@ -245,31 +258,48 @@ void TIM5_IRQHandler(void)
 
 	if (CURRENT_STATE == CLOCK_TIME)
 	{
-		RTC_GetTime(RTC_Format_BIN, &myclockTimeStruct);
+		RTC_GetTime(RTC_Format_BCD, &myclockTimeStruct);
 
-		Hours = (int) myclockTimeStruct.RTC_Hours;
-		Minutes = (int) myclockTimeStruct.RTC_Minutes;
+		Hours = myclockTimeStruct.RTC_Hours;
+		Minutes = myclockTimeStruct.RTC_Minutes;
 	}
 	else
 	{
-		RTC_GetAlarm(RTC_Format_BIN, RTC_Alarm_A, &AlarmStruct);
+		RTC_GetAlarm(RTC_Format_BCD, RTC_Alarm_A, &AlarmStruct);
 
-		Hours = (int) AlarmStruct.RTC_AlarmTime.RTC_Hours;
-		Minutes = (int) AlarmStruct.RTC_AlarmTime.RTC_Minutes;
+		Hours = AlarmStruct.RTC_AlarmTime.RTC_Hours;
+		Minutes = AlarmStruct.RTC_AlarmTime.RTC_Minutes;
  	}
 
-	int FIVE_OR_SIX = 5;
+	int H1 = Hours >> 4;
+	int H2 = Hours & 0x0f;
+	int M1 = Minutes >> 4;
+	int M2 = Minutes & 0x0f;
 
-	if (TIME_STATE == T12_TIME && Hours >= 12)
+	int isT12 = (H1 * 10) + H2;
+	if ( TIME_STATE == T12_TIME && isT12 >= 12)
 		{
-			Hours -= 12;
-			FIVE_OR_SIX = 6;
+			GPIO_SetBits(GPIOE, GPIO_Pin_6);
+			isT12 -= 12;
+			H1 = isT12 / 10;
+			H2 = isT12 % 10;
 		}
+	else {
+		{
+			GPIO_ResetBits(GPIOE, GPIO_Pin_6);
+		}
+	}
 
-	int H1 = Hours / 10;
-	int H2 = Hours % 10;
-	int M1 = Minutes / 10;
-	int M2 = Minutes % 10;
+	if (CURRENT_STATE == ALARM_TIME)
+	{
+		GPIO_SetBits(GPIOE, GPIO_Pin_7);
+	}
+
+	else {
+		{
+			GPIO_ResetBits(GPIOE, GPIO_Pin_7);
+		}
+	}
 
 	static int time_counter = 0;
 	static int digit_counter = 1;
@@ -286,9 +316,7 @@ void TIM5_IRQHandler(void)
 				break;
 		case 4:	SetDigit(4, M2, Digit_flash);
 				break;
-		case 5: SetDigit(5, 10, Digit_flash);
-				break;
-		case 6: SetDigit(5, 11, FALSE);
+		case 5: SetDigit(5, 10, !Digit_flash);
 				break;
 		default: SetDigit(0, 12, FALSE); //if an error occurs, turn off whole display
 				break;
@@ -298,7 +326,7 @@ void TIM5_IRQHandler(void)
 	else {
 		time_counter = 0;
 		digit_counter++;
-		if (digit_counter > FIVE_OR_SIX)
+		if (digit_counter > 5)
 			digit_counter = 1;
 	}
 
@@ -317,6 +345,24 @@ void SetDigit(int Digit, int Value, int Blink)
 			{
 				if (DIGIT_BLINK_RATE++ < 125)
 				{
+					GPIO_SetBits(GPIOD, GPIO_Pin_7);
+				}
+
+				if (DIGIT_BLINK_RATE >= 250)
+				{
+					DIGIT_BLINK_RATE = 0;
+				}
+			}
+			else
+			{
+				GPIO_SetBits(GPIOD, GPIO_Pin_7);
+			}
+
+			break;
+	case 2: if (Blink)
+			{
+				if (DIGIT_BLINK_RATE++ < 125)
+				{
 					GPIO_SetBits(GPIOD, GPIO_Pin_8);
 				}
 
@@ -329,9 +375,8 @@ void SetDigit(int Digit, int Value, int Blink)
 			{
 				GPIO_SetBits(GPIOD, GPIO_Pin_8);
 			}
-
 			break;
-	case 2: if (Blink)
+	case 3: if (Blink)
 			{
 				if (DIGIT_BLINK_RATE++ < 125)
 				{
@@ -348,7 +393,7 @@ void SetDigit(int Digit, int Value, int Blink)
 				GPIO_SetBits(GPIOD, GPIO_Pin_9);
 			}
 			break;
-	case 3: if (Blink)
+	case 4: if (Blink)
 			{
 				if (DIGIT_BLINK_RATE++ < 125)
 				{
@@ -365,14 +410,14 @@ void SetDigit(int Digit, int Value, int Blink)
 				GPIO_SetBits(GPIOD, GPIO_Pin_10);
 			}
 			break;
-	case 4: if (Blink)
+	case 5: if (Blink)
 			{
-				if (DIGIT_BLINK_RATE++ < 125)
+				if (DIGIT_BLINK_RATE++ < 55)
 				{
 					GPIO_SetBits(GPIOD, GPIO_Pin_11);
 				}
 
-				if (DIGIT_BLINK_RATE >= 250)
+				if (DIGIT_BLINK_RATE >= 110)
 				{
 					DIGIT_BLINK_RATE = 0;
 				}
@@ -380,23 +425,6 @@ void SetDigit(int Digit, int Value, int Blink)
 			else
 			{
 				GPIO_SetBits(GPIOD, GPIO_Pin_11);
-			}
-			break;
-	case 5: if (Blink)
-			{
-				if (DIGIT_BLINK_RATE++ < 125)
-				{
-					GPIO_SetBits(GPIOD, GPIO_Pin_7);
-				}
-
-				if (DIGIT_BLINK_RATE >= 250)
-				{
-					DIGIT_BLINK_RATE = 0;
-				}
-			}
-			else
-			{
-				GPIO_SetBits(GPIOD, GPIO_Pin_7);
 			}
 			break;
 	default:break;
@@ -421,32 +449,31 @@ void SetDigit(int Digit, int Value, int Blink)
  * */
 void SetSegment(int Value)
 {
-	GPIO_SetBits(GPIOE, A_Bar | B_Bar | C_Bar | D_Bar | E_Bar | F_Bar | G_Bar); // turn off everything
+	GPIO_ResetBits(GPIOE, A_Bar | B_Bar | C_Bar | D_Bar | E_Bar | F_Bar | G_Bar); // turn off everything
+
 	switch (Value) //turns on selected segments
 	{
-	case 0:	GPIO_ResetBits(GPIOE, A_Bar | B_Bar | C_Bar | D_Bar | E_Bar | F_Bar);
+	case 0:	GPIO_SetBits(GPIOE, A_Bar | B_Bar | C_Bar | D_Bar | E_Bar | F_Bar);
 			break;
-	case 1:	GPIO_ResetBits(GPIOE, B_Bar | C_Bar);
+	case 1:	GPIO_SetBits(GPIOE, B_Bar | C_Bar);
 			break;
-	case 2:	GPIO_ResetBits(GPIOE, A_Bar | B_Bar | D_Bar | E_Bar | G_Bar);
+	case 2:	GPIO_SetBits(GPIOE, A_Bar | B_Bar | D_Bar | E_Bar | G_Bar);
 			break;
-	case 3:	GPIO_ResetBits(GPIOE, A_Bar | B_Bar | C_Bar | D_Bar | G_Bar);
+	case 3:	GPIO_SetBits(GPIOE, A_Bar | B_Bar | C_Bar | D_Bar | G_Bar);
 			break;
-	case 4:	GPIO_ResetBits(GPIOE, B_Bar | C_Bar | F_Bar | G_Bar);
+	case 4:	GPIO_SetBits(GPIOE, B_Bar | C_Bar | F_Bar | G_Bar);
 			break;
-	case 5:	GPIO_ResetBits(GPIOE, A_Bar | C_Bar | D_Bar | F_Bar | G_Bar);
+	case 5:	GPIO_SetBits(GPIOE, A_Bar | C_Bar | D_Bar | F_Bar | G_Bar);
 			break;
-	case 6:	GPIO_ResetBits(GPIOE, A_Bar | C_Bar | D_Bar | E_Bar | F_Bar | G_Bar);
+	case 6:	GPIO_SetBits(GPIOE, A_Bar | C_Bar | D_Bar | E_Bar | F_Bar | G_Bar);
 			break;
-	case 7:	GPIO_ResetBits(GPIOE, A_Bar | B_Bar | C_Bar);
+	case 7:	GPIO_SetBits(GPIOE, A_Bar | B_Bar | C_Bar);
 			break;
-	case 8:	GPIO_ResetBits(GPIOE, A_Bar | B_Bar | C_Bar | D_Bar | E_Bar | F_Bar | G_Bar);
+	case 8:	GPIO_SetBits(GPIOE, A_Bar | B_Bar | C_Bar | D_Bar | E_Bar | F_Bar | G_Bar);
 			break;
-	case 9:	GPIO_ResetBits(GPIOE, A_Bar | B_Bar | C_Bar | F_Bar | G_Bar);
+	case 9:	GPIO_SetBits(GPIOE, A_Bar | B_Bar | C_Bar | F_Bar | G_Bar);
 			break;
-	case 10:GPIO_ResetBits(GPIOE, A_Bar | B_Bar);
-			break;
-	case 11:GPIO_ResetBits(GPIOE, C_Bar);
+	case 10:GPIO_SetBits(GPIOE, A_Bar | B_Bar);
 			break;
 	default:break;
 
@@ -455,13 +482,13 @@ void SetSegment(int Value)
 
 void Clock_Time_Increment(uint8_t Hours, uint8_t Minutes)
 {
-	RTC_GetTime(RTC_Format_BCD, &myclockTimeStruct);
+	RTC_GetTime(RTC_Format_BIN, &myclockTimeStruct);
 
 	myclockTimeStruct.RTC_Hours += Hours;
 	myclockTimeStruct.RTC_Minutes += Minutes;
+	myclockTimeStruct.RTC_Seconds += 0x00;
 
-
-	if ( myclockTimeStruct.RTC_Minutes >= 0x3c ) //is the minutes less than 60 in (in hex)
+	if ( myclockTimeStruct.RTC_Minutes >= 0x3C ) //is the minutes less than 60 in (in hex)
 	{
 		myclockTimeStruct.RTC_Minutes = 0x00;
 		myclockTimeStruct.RTC_Hours += 0x01;
@@ -472,30 +499,30 @@ void Clock_Time_Increment(uint8_t Hours, uint8_t Minutes)
 		myclockTimeStruct.RTC_Hours = 0x00;
 	}
 
-	RTC_SetTime(RTC_Format_BCD, &myclockTimeStruct);
+	RTC_SetTime(RTC_Format_BIN, &myclockTimeStruct);
 }
 
 void Alarm_Time_Increment(uint8_t Hours, uint8_t Minutes)
 {
 	RTC_AlarmCmd(RTC_Alarm_A,DISABLE);
-	RTC_GetAlarm(RTC_Format_BCD, RTC_Alarm_A, &AlarmStruct);
+	RTC_GetAlarm(RTC_Format_BIN, RTC_Alarm_A, &AlarmStruct);
 
 	AlarmStruct.RTC_AlarmTime.RTC_Hours += Hours;
 	AlarmStruct.RTC_AlarmTime.RTC_Minutes += Minutes;
+	AlarmStruct.RTC_AlarmTime.RTC_Seconds = 0x00;
 
-
-	if (AlarmStruct.RTC_AlarmTime.RTC_Minutes >= 0x60)
+	if (AlarmStruct.RTC_AlarmTime.RTC_Minutes >= 0x3C)
 	{
 		AlarmStruct.RTC_AlarmTime.RTC_Minutes = 0x00;
 		AlarmStruct.RTC_AlarmTime.RTC_Hours += 0x01;
 	}
 
-	if (AlarmStruct.RTC_AlarmTime.RTC_Hours >= 0x24)
+	if (AlarmStruct.RTC_AlarmTime.RTC_Hours >= 0x18)
 	{
 		AlarmStruct.RTC_AlarmTime.RTC_Hours = 0x00;
 	}
 
-	RTC_SetAlarm(RTC_Format_BCD,RTC_Alarm_A,&AlarmStruct);
+	RTC_SetAlarm(RTC_Format_BIN,RTC_Alarm_A,&AlarmStruct);
 	RTC_AlarmCmd(RTC_Alarm_A,ENABLE);
 }
 
@@ -513,6 +540,7 @@ void RTC_Alarm_IRQHandler(void)
 	    EXTI_ClearITPendingBit(EXTI_Line17);
 		interruptOccurred = 1;
 	  }
+
 	  interupt_flag = 1;
 }
 
@@ -574,17 +602,17 @@ void configuration(void)
 
 	  //set the time displayed on power up to 12PM
 	  myclockTimeStruct.RTC_H12 = RTC_H12_PM;
-	  myclockTimeStruct.RTC_Hours = 0x11;
+	  myclockTimeStruct.RTC_Hours = 0x14;
 	  myclockTimeStruct.RTC_Minutes = 0x59;
-	  myclockTimeStruct.RTC_Seconds = 0x00;
+	  myclockTimeStruct.RTC_Seconds = 0x50;
 	  RTC_SetTime(RTC_Format_BCD, &myclockTimeStruct);
 
 
 	  //sets alarmA for 12:00AM, date doesn't matter
 	  AlarmStruct.RTC_AlarmTime.RTC_H12 = RTC_H12_PM; //change to AM
-	  AlarmStruct.RTC_AlarmTime.RTC_Hours = 0x11;
-	  AlarmStruct.RTC_AlarmTime.RTC_Minutes = 0x59;
-	  AlarmStruct.RTC_AlarmTime.RTC_Seconds = 0x15;
+	  AlarmStruct.RTC_AlarmTime.RTC_Hours = 0x15;
+	  AlarmStruct.RTC_AlarmTime.RTC_Minutes = 0x00;
+	  AlarmStruct.RTC_AlarmTime.RTC_Seconds = 0x00;
 	  AlarmStruct.RTC_AlarmMask = RTC_AlarmMask_DateWeekDay;
 	  RTC_SetAlarm(RTC_Format_BCD,RTC_Alarm_A,&AlarmStruct);
 
